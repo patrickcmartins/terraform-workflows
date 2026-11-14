@@ -29,7 +29,7 @@ jobs:
     outputs:
       dirs: ${{ steps.find.outputs.dirs }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: find
         name: Descobre root modules (diretórios com *.tf)
         env:
@@ -43,7 +43,7 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ inputs.terraform-version }}
@@ -61,7 +61,7 @@ jobs:
       run:
         working-directory: ${{ matrix.dir }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: patrickcmartins/terraform-workflows/actions/setup-terraform-tools@v1
         with:
           terraform-version: ${{ inputs.terraform-version }}
@@ -91,7 +91,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: touch .trivyignore
       - name: trivy (misconfig IaC)
         uses: aquasecurity/trivy-action@0.36.0
