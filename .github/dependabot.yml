@@ -1,0 +1,5 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories: ["/", "/actions/*"]
+    schedule: { interval: weekly }

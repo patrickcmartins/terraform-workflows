@@ -1,0 +1,102 @@
+# Reusable workflow: pipeline "shift-left" para qualquer repo Terraform.
+#   uses: patrickcmartins/terraform-workflows/.github/workflows/terraform-ci.yml@v1
+name: terraform-ci
+
+on:
+  workflow_call:
+    inputs:
+      terraform-version:
+        type: string
+        default: "1.17.2"
+      exclude-regex:
+        description: Diretórios a ignorar no validate/tflint (regex do grep -E)
+        type: string
+        default: "^$"
+      run-tests:
+        description: Roda `terraform test` nos diretórios que têm tests/
+        type: boolean
+        default: false
+      trivy-severity:
+        type: string
+        default: HIGH,CRITICAL
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.find.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        name: Descobre root modules (diretórios com *.tf)
+        run: |
+          dirs=$(find . -name '*.tf' -not -path '*/.terraform/*' -not -path './fixtures/*' -printf '%h\n' \
+                 | sed 's|^\./||' | sort -u | grep -Ev '${{ inputs.exclude-regex }}' || true)
+          echo "dirs=$(printf '%s\n' $dirs | jq -R . | jq -sc 'map(select(length>0))')" >> "$GITHUB_OUTPUT"
+          echo "Encontrados: $dirs"
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+      - run: terraform fmt -check -recursive -diff
+
+  validate:
+    needs: discover
+    if: needs.discover.outputs.dirs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.discover.outputs.dirs) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: patrickcmartins/terraform-workflows/actions/setup-terraform-tools@v1
+        with:
+          terraform-version: ${{ inputs.terraform-version }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ hashFiles('.tflint.hcl') }}
+      - name: terraform init (sem backend)
+        run: terraform init -backend=false -input=false
+      - name: terraform validate
+        run: terraform validate
+      - name: tflint
+        run: |
+          cfg="$GITHUB_WORKSPACE/.tflint.hcl"
+          [ -f "$cfg" ] || cfg=/dev/null
+          tflint --init --config="$cfg"
+          tflint --config="$cfg" --format=compact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: terraform test
+        if: inputs.run-tests && hashFiles(format('{0}/tests/*.tftest.hcl', matrix.dir)) != ''
+        run: terraform test
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: touch .trivyignore
+      - name: trivy (misconfig IaC)
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: config
+          severity: ${{ inputs.trivy-severity }}
+          exit-code: "1"
+          format: table
+          skip-dirs: fixtures
+          trivyignores: .trivyignore
