@@ -1,0 +1,19 @@
+name: setup-terraform-tools
+description: Instala Terraform e TFLint em versões fixas (toolchain reprodutível).
+inputs:
+  terraform-version:
+    description: Versão do Terraform
+    default: "1.17.2"
+  tflint-version:
+    description: Versão do TFLint
+    default: "v0.66.0"
+runs:
+  using: composite
+  steps:
+    - uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: false
+    - uses: terraform-linters/setup-tflint@v4
+      with:
+        tflint_version: ${{ inputs.tflint-version }}

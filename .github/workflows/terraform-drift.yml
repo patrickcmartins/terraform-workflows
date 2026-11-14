@@ -1,0 +1,65 @@
+# Reusable workflow: detecção de drift via plan -detailed-exitcode.
+# Autentica na AWS por OIDC (sem access keys). Abre/atualiza uma issue quando há drift.
+name: terraform-drift
+
+on:
+  workflow_call:
+    inputs:
+      directories:
+        description: JSON array de diretórios, ex. ["aws/prod/eks"]
+        type: string
+        required: true
+      aws-region:
+        type: string
+        default: us-east-1
+      terraform-version:
+        type: string
+        default: "1.17.2"
+    secrets:
+      aws-role-arn:
+        description: Role assumida via OIDC (somente leitura)
+        required: true
+
+permissions:
+  contents: read
+  id-token: write   # necessário para pedir o JWT OIDC
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(inputs.directories) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          terraform_wrapper: false
+      - name: plan
+        id: plan
+        working-directory: ${{ matrix.dir }}
+        run: |
+          terraform init -input=false -lock=false
+          set +e
+          terraform plan -input=false -lock=false -detailed-exitcode -no-color > plan.txt
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ $code -eq 1 ] && { cat plan.txt; exit 1; }
+          exit 0
+      - name: abre issue de drift
+        if: steps.plan.outputs.code == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIR: ${{ matrix.dir }}
+        run: |
+          title="drift: ${DIR}"
+          body=$(printf 'Drift detectado em `%s` (run %s).\n\n```\n%s\n```' "$DIR" "$GITHUB_RUN_ID" "$(tail -c 60000 "$DIR/plan.txt")")
+          num=$(gh issue list --state open --search "in:title \"$title\"" --json number -q '.[0].number')
+          if [ -n "$num" ]; then gh issue comment "$num" --body "$body"; else gh issue create --title "$title" --body "$body" --label drift || gh issue create --title "$title" --body "$body"; fi
