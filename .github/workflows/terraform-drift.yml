@@ -60,6 +60,7 @@ jobs:
           DIR: ${{ matrix.dir }}
         run: |
           title="drift: ${DIR}"
-          body=$(printf 'Drift detectado em `%s` (run %s).\n\n```\n%s\n```' "$DIR" "$GITHUB_RUN_ID" "$(tail -c 60000 "$DIR/plan.txt")")
+          fence='~~~'
+          body=$(printf "Drift detectado em %s (run %s).\n\n%s\n%s\n%s" "$DIR" "$GITHUB_RUN_ID" "$fence" "$(tail -c 60000 "$DIR/plan.txt")" "$fence")
           num=$(gh issue list --state open --search "in:title \"$title\"" --json number -q '.[0].number')
           if [ -n "$num" ]; then gh issue comment "$num" --body "$body"; else gh issue create --title "$title" --body "$body" --label drift || gh issue create --title "$title" --body "$body"; fi
